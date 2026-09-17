@@ -44,6 +44,5 @@ python -B -X utf8 -m unittest discover -s .\tests -v
 - “神话”是高等级的独立物品版本，不是可自由附加的随机前缀。
 - 装备属性随机范围由游戏运行时决定；当前不承诺“满属性”生成。
 - DLL 注入可能受管理员权限、游戏版本或 Windows 进程权限影响。
-=======
-# GD-Item-Generator
->>>>>>> origin/main
+
+
