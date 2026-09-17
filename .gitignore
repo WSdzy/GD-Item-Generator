@@ -1,0 +1,9 @@
+# Python runtime cache
+__pycache__/
+*.py[cod]
+
+# Large extracted game database and transient diagnostics
+data/gd_db/
+data/*.log
+bin/gd_helper_startup.log
+bin/gd_helper_broken.dll
