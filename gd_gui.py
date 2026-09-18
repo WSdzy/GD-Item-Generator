@@ -78,8 +78,12 @@ def game_executable(game_root: str) -> Path | None:
     root = Path(game_root).expanduser() if game_root else None
     if not root:
         return None
-    executable = root / "Grim Dawn.exe"
-    return executable if executable.is_file() else None
+    # Steam's current x64 installation commonly keeps the executable in an
+    # x64 subdirectory, while older installations place it at the root.
+    for executable in (root / "Grim Dawn.exe", root / "x64" / "Grim Dawn.exe"):
+        if executable.is_file():
+            return executable
+    return None
 
 
 def is_grim_dawn_running() -> bool:
@@ -1076,14 +1080,13 @@ class TrainerApp:
             self._set_status("异常", "#a33a32")
 
     def inject_helper(self) -> None:
+        # Do not block injection based on tasklist.  A game launched with
+        # elevated privileges can be invisible to the normal GUI process;
+        # the injector itself is elevated and is the authoritative check.
         if not is_grim_dawn_running():
-            messagebox.showwarning(
-                "游戏未运行",
-                "请先启动 Grim Dawn 并进入角色，再注入 Helper。\n"
-                "若游戏不在默认位置，可先选择游戏目录后点击“启动游戏”。",
-                parent=self.root,
+            self._append_log(
+                "未能以普通权限确认游戏进程；仍将交由管理员注入器检测。"
             )
-            return
         injector = ROOT / "bin" / "gd_injector.exe"
         if not injector.is_file():
             messagebox.showerror(

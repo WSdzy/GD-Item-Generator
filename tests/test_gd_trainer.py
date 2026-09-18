@@ -192,9 +192,11 @@ class GuiImportTests(unittest.TestCase):
     def test_game_path_helpers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            executable = root / "Grim Dawn.exe"
+            executable = root / "x64" / "Grim Dawn.exe"
+            executable.parent.mkdir()
             executable.write_bytes(b"")
             self.assertEqual(gd_gui.game_executable(str(root)), executable)
+            self.assertEqual(gd_gui.game_executable(str(root / "x64")), executable)
             settings_path = root / "settings.json"
             gd_gui.save_user_settings({"game_root": str(root)}, settings_path)
             self.assertEqual(
