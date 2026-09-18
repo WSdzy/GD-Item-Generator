@@ -16,8 +16,9 @@ from typing import Any
 DEFAULT_GAME_ROOT = Path(
     r"D:\Program Files (x86)\steam\steamapps\common\Grim Dawn"
 )
-CATALOG_VERSION = 3
+CATALOG_VERSION = 4
 DEFAULT_EXTRACTED_DB = Path(__file__).resolve().parent / "data" / "gd_db"
+PROJECT_LOCALIZATION_DIR = Path(__file__).resolve().parent / "data" / "localization_zh"
 RECORD_RE = re.compile(rb"records/[A-Za-z0-9_./%~()+ -]+?\.dbr")
 TAG_COLOR_RE = re.compile(r"\^[A-Za-z0-9]")
 
@@ -84,6 +85,12 @@ def archive_signature(archives: list[Path]) -> list[dict[str, Any]]:
 
 
 def discover_localization_files() -> list[Path]:
+    """Return optional local overrides followed by the bundled Chinese tags.
+
+    The bundled files make the checked-in catalog portable.  A user's local
+    text files are still supported for people maintaining their own
+    translation, but do not need to be present for normal use.
+    """
     roots: list[Path] = []
     configured = os.environ.get("GRIM_DAWN_TEXT_DIR")
     if configured:
@@ -96,6 +103,7 @@ def discover_localization_files() -> list[Path]:
             home / "OneDrive" / "Documents" / "My Games" / "Grim Dawn" / "Settings" / "text_zh",
             home / "Documents" / "My Games" / "Grim Dawn" / "Settings" / "text_zh",
             home / "我的文档" / "My Games" / "Grim Dawn" / "Settings" / "text_zh",
+            PROJECT_LOCALIZATION_DIR,
         ]
     )
 
@@ -317,8 +325,6 @@ def cache_is_current(cache: dict[str, Any], game_root: Path) -> bool:
         return False
     if str(game_root.resolve()) != cache.get("game_root"):
         return False
-    if str(DEFAULT_EXTRACTED_DB.resolve()) != cache.get("extracted_db"):
-        return False
     archives = discover_archives(game_root)
     localization_files = discover_localization_files()
     return (
@@ -341,7 +347,11 @@ def load_catalog(
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             cached = {}
-        if cache_is_current(cached, game_root):
+        # The released catalog is a complete, versioned runtime asset.  Do
+        # not attempt a partial rebuild simply because this computer uses a
+        # different installation path: rebuilding also needs unpacked DBR
+        # records, which are deliberately not shipped with the small project.
+        if cached.get("version") in {3, CATALOG_VERSION} and cached.get("records"):
             return cached
 
     catalog = build_catalog(game_root)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -71,6 +73,22 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(shuroth["level_requirement"], 94)
         self.assertEqual(shuroth["item_classification"], "Legendary")
 
+    def test_bundled_localization_and_portable_cache(self) -> None:
+        bundled = catalog.PROJECT_LOCALIZATION_DIR / "tags_items.txt"
+        self.assertTrue(bundled.is_file())
+        self.assertIn(bundled, catalog.discover_localization_files())
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cache_path = Path(temporary) / "catalog.json"
+            cache_path.write_text(
+                json.dumps({"version": 3, "records": [{"path": "records/test.dbr"}]}),
+                encoding="utf-8",
+            )
+            loaded = catalog.load_catalog(
+                Path(temporary) / "no-game-installed", cache_path
+            )
+        self.assertEqual(loaded["records"][0]["path"], "records/test.dbr")
+
     def test_affix_validation_blocks_legendary_and_high_level_affixes(self) -> None:
         with self.assertRaises(ValueError):
             gd_gui.validate_affix_selection(
@@ -78,6 +96,33 @@ class CatalogTests(unittest.TestCase):
                 {"level_requirement": 1},
                 {},
             )
+
+    def test_targeted_affix_prefers_matching_highest_legal_tier(self) -> None:
+        base = {"item_classification": "Rare", "level_requirement": 50}
+        records = [
+            {"path": "prefix/low", "level_requirement": 20},
+            {"path": "prefix/high", "level_requirement": 50},
+            {"path": "prefix/too-high", "level_requirement": 70},
+        ]
+        chosen, text, score = gd_gui.choose_targeted_affix(
+            records,
+            {
+                "prefix/low": "+20% 混乱伤害",
+                "prefix/high": "+40% 混乱伤害 18% 混乱抗性",
+                "prefix/too-high": "+99% 混乱伤害",
+            },
+            base,
+            ["混乱伤害", "混乱抗性"],
+        )
+        self.assertEqual(chosen["path"], "prefix/high")
+        self.assertEqual(text, "+40% 混乱伤害 18% 混乱抗性")
+        self.assertEqual(score, (2, 58.0))
+
+    def test_targeted_affix_score_uses_only_selected_stats(self) -> None:
+        self.assertEqual(
+            gd_gui.score_affix_targets("+40% 混乱伤害 22% 虚化抗性", ["混乱伤害"]),
+            (1, 40.0),
+        )
         with self.assertRaises(ValueError):
             gd_gui.validate_affix_selection(
                 {"item_classification": "Rare", "level_requirement": 20},
@@ -143,6 +188,18 @@ class GuiImportTests(unittest.TestCase):
     def test_gui_module_imports_without_starting_tk(self) -> None:
         self.assertTrue(callable(gd_gui.main))
         self.assertTrue(callable(gd_gui.TrainerApp))
+
+    def test_game_path_helpers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "Grim Dawn.exe"
+            executable.write_bytes(b"")
+            self.assertEqual(gd_gui.game_executable(str(root)), executable)
+            settings_path = root / "settings.json"
+            gd_gui.save_user_settings({"game_root": str(root)}, settings_path)
+            self.assertEqual(
+                gd_gui.load_user_settings(settings_path), {"game_root": str(root)}
+            )
 
 
 if __name__ == "__main__":
