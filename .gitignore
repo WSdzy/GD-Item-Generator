@@ -4,6 +4,7 @@ __pycache__/
 
 # Large extracted game database and transient diagnostics
 data/gd_db/
+data/arz_test/
 data/on_demand_probe/
 data/on_demand_probe_*
 data/*.log
