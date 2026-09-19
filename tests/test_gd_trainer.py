@@ -63,6 +63,35 @@ class CatalogTests(unittest.TestCase):
         )
         self.assertEqual(gd_gui.filter_records(records, "base", "prefix"), [])
 
+    def test_bundled_material_records_have_known_paths_and_names(self) -> None:
+        records = gd_gui.load_material_records()
+        self.assertGreaterEqual(len(records), 400)
+        self.assertGreaterEqual(
+            sum(record["category"] == "镶嵌物" for record in records), 100
+        )
+        scaly_hide = next(
+            record for record in records
+            if record["path"] == "records/items/materia/compa_scalyhide.dbr"
+        )
+        malmouth_heart = next(
+            record for record in records
+            if record["path"] == "records/items/enchants/b122a_enchant.dbr"
+        )
+        self.assertEqual(gd_gui.record_display_name(scaly_hide), "鳞状兽皮")
+        self.assertEqual(scaly_hide["category"], "镶嵌物")
+        self.assertEqual(gd_gui.record_display_name(malmouth_heart), "马尔茅斯之心")
+        self.assertEqual(malmouth_heart["category"], "附魔")
+        rune = next(
+            record for record in records
+            if record["path"] == "records/items/enchants/runes/d217_rune.dbr"
+        )
+        self.assertEqual(gd_gui.record_display_name(rune), "伊师塔克之仁慈符文")
+        self.assertEqual(rune["category"], "符文")
+        self.assertEqual(
+            create_affixed_command(scaly_hide["path"], "", "", 0, 1000),
+            "create_affixed\trecords/items/materia/compa_scalyhide.dbr\t\t\t0\t1000",
+        )
+
     def test_catalog_exposes_level_and_rarity(self) -> None:
         records = catalog.load_catalog()["records"]
         shuroth = next(

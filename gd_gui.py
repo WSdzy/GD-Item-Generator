@@ -36,6 +36,7 @@ MAX_UINT32 = 0xFFFFFFFF
 ALL_CATEGORIES = "全部"
 NO_TARGET_ATTRIBUTE = "不指定"
 AFFIX_STATS_PATH = ROOT / "data" / "zygd_items.json"
+MATERIALS_PATH = ROOT / "data" / "materials.json"
 USER_SETTINGS_PATH = ROOT / "data" / "settings.local.json"
 # These are deliberately phrased as the Chinese terms used in the bundled
 # affix index.  Selecting at most two keeps the recommendation meaningful:
@@ -207,6 +208,20 @@ def load_affix_stat_texts(path: Path = AFFIX_STATS_PATH) -> Dict[str, str]:
         for entry in payload.get("affixes", [])
         if entry.get("path") and entry.get("stats")
     }
+
+
+def load_material_records(path: Path = MATERIALS_PATH) -> List[Dict[str, Any]]:
+    """Load bundled fixed-value material and enchantment records."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [
+        record for record in payload.get("records", [])
+        if isinstance(record, dict)
+        and record.get("kind") == "material"
+        and record.get("path")
+    ]
 
 
 def score_affix_targets(stat_text: str, targets: Sequence[str]) -> Tuple[int, float]:
@@ -581,6 +596,7 @@ class TrainerApp:
         self.generation_running = False
         self.stop_event = threading.Event()
         self.catalog: Optional[Dict[str, Any]] = None
+        self.material_records: List[Dict[str, Any]] = []
         self.user_settings = load_user_settings()
 
         self.status_var = tk.StringVar(value="状态：未检测")
@@ -588,10 +604,12 @@ class TrainerApp:
             value=self.user_settings.get("game_root", "未配置（已运行的游戏可直接注入）")
         )
         self.base_path_var = tk.StringVar(value="未选择")
+        self.material_path_var = tk.StringVar(value="未选择")
         self.prefix_path_var = tk.StringVar(value="不使用")
         self.suffix_path_var = tk.StringVar(value="不使用")
         self.seed_var = tk.StringVar(value=str(random_seed()))
         self.count_var = tk.StringVar(value="1")
+        self.material_count_var = tk.StringVar(value="1")
         self.target_one_var = tk.StringVar(value=NO_TARGET_ATTRIBUTE)
         self.target_two_var = tk.StringVar(value=NO_TARGET_ATTRIBUTE)
         self.target_result_var = tk.StringVar(
@@ -682,14 +700,28 @@ class TrainerApp:
         paned = ttk.Panedwindow(body, orient=tk.HORIZONTAL)
         paned.grid(row=0, column=0, sticky="nsew")
 
-        base_frame = ttk.LabelFrame(paned, text="基础物品", padding=8)
+        base_frame = ttk.LabelFrame(paned, text="物品", padding=8)
+        base_notebook = ttk.Notebook(base_frame)
+        base_notebook.pack(fill=tk.BOTH, expand=True)
+        base_tab = ttk.Frame(base_notebook, padding=6)
         self.base_picker = RecordPicker(
-            base_frame,
+            base_tab,
             kind="base",
             on_change=self._on_selection_changed,
             include_categories=True,
         )
         self.base_picker.pack(fill=tk.BOTH, expand=True)
+        base_notebook.add(base_tab, text="装备")
+
+        material_tab = ttk.Frame(base_notebook, padding=6)
+        self.material_picker = RecordPicker(
+            material_tab,
+            kind="material",
+            on_change=self._on_selection_changed,
+            include_categories=True,
+        )
+        self.material_picker.pack(fill=tk.BOTH, expand=True)
+        base_notebook.add(material_tab, text="材料")
         paned.add(base_frame, weight=1)
 
         affix_frame = ttk.LabelFrame(paned, text="前后词缀", padding=8)
@@ -724,9 +756,10 @@ class TrainerApp:
         self._add_path_row(generator, 0, "基础", self.base_path_var)
         self._add_path_row(generator, 1, "前缀", self.prefix_path_var)
         self._add_path_row(generator, 2, "后缀", self.suffix_path_var)
+        self._add_path_row(generator, 3, "材料", self.material_path_var)
 
         options = ttk.Frame(generator)
-        options.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(7, 7))
+        options.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(7, 7))
         options.columnconfigure(1, weight=1)
 
         ttk.Label(options, text="种子（紫装/传奇也适用）").grid(row=0, column=0, padx=(0, 6))
@@ -774,8 +807,8 @@ class TrainerApp:
         self.auto_affix_button.grid(row=0, column=4, padx=(12, 0))
 
         action_row = ttk.Frame(generator)
-        action_row.grid(row=4, column=0, columnspan=2, sticky="ew")
-        action_row.columnconfigure(5, weight=1)
+        action_row.grid(row=5, column=0, columnspan=2, sticky="ew")
+        action_row.columnconfigure(8, weight=1)
         self.create_base_button = ttk.Button(
             action_row,
             text="生成无前后缀物品",
@@ -792,18 +825,35 @@ class TrainerApp:
             state=tk.DISABLED,
         )
         self.create_affixed_button.grid(row=0, column=1, padx=(0, 8))
+        ttk.Label(action_row, text="材料数量").grid(row=0, column=2, padx=(0, 5))
+        self.material_count_box = ttk.Combobox(
+            action_row,
+            textvariable=self.material_count_var,
+            values=("1", "100", "1000"),
+            state="readonly",
+            width=6,
+        )
+        self.material_count_box.grid(row=0, column=3, padx=(0, 6))
+        self.create_material_button = ttk.Button(
+            action_row,
+            text="生成材料",
+            command=self.create_material,
+            style="Action.TButton",
+            state=tk.DISABLED,
+        )
+        self.create_material_button.grid(row=0, column=4, padx=(0, 8))
         self.stop_button = ttk.Button(
             action_row,
             text="停止生成",
             command=self.stop_generation,
             state=tk.DISABLED,
         )
-        self.stop_button.grid(row=0, column=2, padx=(0, 8))
+        self.stop_button.grid(row=0, column=5, padx=(0, 8))
         ttk.Button(
             action_row,
             text="清空日志",
             command=self._clear_log,
-        ).grid(row=0, column=3)
+        ).grid(row=0, column=6)
 
         self.progress = ttk.Progressbar(
             action_row,
@@ -812,10 +862,10 @@ class TrainerApp:
             value=0,
             length=180,
         )
-        self.progress.grid(row=0, column=5, sticky="e")
+        self.progress.grid(row=0, column=8, sticky="e")
 
         log_frame = ttk.Frame(generator)
-        log_frame.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        log_frame.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -926,6 +976,8 @@ class TrainerApp:
         self.catalog = result
         records = list(result.get("records", []))
         self.base_picker.set_records(records)
+        self.material_records = load_material_records()
+        self.material_picker.set_records(self.material_records)
         self.prefix_picker.set_records(records)
         self.suffix_picker.set_records(records)
         self.affix_stat_texts = load_affix_stat_texts()
@@ -946,6 +998,7 @@ class TrainerApp:
             self._append_log(f"词条属性索引已加载：{len(self.affix_stat_texts)} 条。")
         else:
             self._append_log("未找到词条属性索引；仍可手动选择词缀。")
+        self._append_log(f"材料目录已加载：{len(self.material_records)} 项。")
         self._on_selection_changed()
         self.check_connection()
 
@@ -1032,6 +1085,10 @@ class TrainerApp:
         self.create_affixed_button.configure(
             state=tk.NORMAL if can_create and self.base_picker.selected_path else tk.DISABLED
         )
+        self.create_material_button.configure(
+            state=tk.NORMAL if can_create and self.material_picker.selected_path else tk.DISABLED
+        )
+        self.material_count_box.configure(state="readonly" if not busy else tk.DISABLED)
         self.auto_affix_button.configure(
             state=tk.NORMAL if can_create and self.base_picker.selected_path else tk.DISABLED
         )
@@ -1045,6 +1102,7 @@ class TrainerApp:
 
     def _on_selection_changed(self) -> None:
         self.base_path_var.set(self.base_picker.selected_path or "未选择")
+        self.material_path_var.set(self.material_picker.selected_path or "未选择")
         self.prefix_path_var.set(self.prefix_picker.selected_path or "不使用")
         self.suffix_path_var.set(self.suffix_picker.selected_path or "不使用")
         if hasattr(self, "create_base_button"):
@@ -1347,6 +1405,36 @@ class TrainerApp:
             self._callback_生成带词缀物品,
             count,
         )
+
+    def create_material(self) -> None:
+        material = self.material_picker.selected_path
+        if not material:
+            messagebox.showwarning("未选择材料", "请先在“材料”页选择材料。", parent=self.root)
+            return
+        try:
+            count = int(self.material_count_var.get(), 10)
+        except ValueError:
+            count = 0
+        if count not in {1, 100, 1000}:
+            messagebox.showerror("参数错误", "材料数量必须为 1、100 或 1000。", parent=self.root)
+            return
+        record = self.material_picker.records_by_path.get(material, {})
+        name = record_display_name(record) or material
+        self.submit_generation(
+            f"生成材料：{name}",
+            # Materials are fixed DBR records.  Empty affix fields preserve
+            # their native component/enchantment behavior.
+            lambda _index: create_affixed_command(material, "", "", 0, count),
+            self._callback_生成材料,
+            1,
+        )
+
+    def _callback_生成材料(
+        self,
+        result: Any,
+        error: Optional[BaseException],
+    ) -> None:
+        self._handle_generation_result("生成材料", result, error)
 
     def _callback_生成带词缀物品(
         self,

@@ -5,6 +5,7 @@ __pycache__/
 # Large extracted game database and transient diagnostics
 data/gd_db/
 data/on_demand_probe/
+data/on_demand_probe_*
 data/*.log
 data/settings.local.json
 bin/gd_helper_startup.log
